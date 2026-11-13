@@ -1,4 +1,4 @@
-# Java: Recepción en vivo y C4 Consultas simultáneas
+# Java: Recepción en vivo y Consultas simultáneas
 
 Responsable: 
 
