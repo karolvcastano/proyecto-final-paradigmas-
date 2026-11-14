@@ -30,7 +30,9 @@ moduloATexto m = case m of
   EXT   -> "EXT"
   TODOS -> "*"
 
--- Las 6 fuentes de evidencia de la estación
+-- Las 6 fuentes de evidencia de la estación y las 2 fuentes de referencia.
+-- Las de referencia se usan para emitir diagnosticos con trazabilidad cuando
+-- una fila de personal.csv o estacion.csv no se puede interpretar.
 data Fuente
   = FuenteTarjetas
   | FuenteRadio
@@ -38,6 +40,8 @@ data Fuente
   | FuentePresencia
   | FuenteTemperatura
   | FuenteBitacora
+  | FuentePersonal
+  | FuenteEstacion
   deriving (Eq, Ord, Show)
 
 -- Nombre del archivo para el campo "fuente" del JSON
@@ -49,6 +53,8 @@ fuenteATexto f = case f of
   FuentePresencia   -> "presencia.csv"
   FuenteTemperatura -> "temperatura.csv"
   FuenteBitacora    -> "bitacora.txt"
+  FuentePersonal    -> "personal.csv"
+  FuenteEstacion    -> "estacion.csv"
 
 -- Prefijo para generar el campo "id" (ej. "tarjetas-00001")
 prefijoFuente :: Fuente -> String
@@ -59,6 +65,8 @@ prefijoFuente f = case f of
   FuentePresencia   -> "presencia"
   FuenteTemperatura -> "temperatura"
   FuenteBitacora    -> "bitacora"
+  FuentePersonal    -> "personal"
+  FuenteEstacion    -> "estacion"
 
 -- Estado de validación de cada registro (ningún dato se descarta)
 data Estado
@@ -82,7 +90,8 @@ data PersonaRef = PersonaRef
   { refTarjeta :: String,
     refNombre  :: String,
     refCargo   :: String,
-    refAccesos :: [String]
+    refAccesos :: [String],
+    refLineaPersonal :: Int
   }
   deriving (Eq, Show)
 
@@ -91,7 +100,8 @@ data PuertaRef = PuertaRef
   { refPuerta      :: String,
     refModulo1     :: Modulo,
     refModulo2     :: Modulo,
-    refTieneLector :: Bool
+    refTieneLector :: Bool,
+    refLineaPuerta :: Int
   }
   deriving (Eq, Show)
 

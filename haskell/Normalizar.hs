@@ -5,7 +5,7 @@
 module Normalizar where
 
 import Data.Char (isDigit, isSpace, toLower, toUpper)
-import Data.List (isInfixOf, isPrefixOf)
+import Data.List (isInfixOf)
 import Tipos
 
 -- ===========================================================================
@@ -91,25 +91,51 @@ resolverModulo texto =
 -- 3. Unificación de Identidades (Resolución de Alias)
 -- ===========================================================================
 
+-- Códigos canónicos declarados en personal.csv. La referencia es la fuente
+-- de verdad: si una tarjeta no está allí, no se inventa una identidad.
+codigosDePersonas :: [PersonaRef] -> [String]
+codigosDePersonas = map refTarjeta
+
+-- Resuelve una tarjeta exacta de una lectura de tarjetas.csv.
+-- A diferencia de resolverPersona, aquí NO se aceptan alias: el lector
+-- registra códigos de tarjeta, no nombres hablados.
+resolverTarjeta :: [PersonaRef] -> String -> Either String String
+resolverTarjeta personas raw =
+  let limpio = limpiar raw
+   in if limpio `elem` codigosDePersonas personas
+        then Right limpio
+        else Left ("Tarjeta no registrada en personal.csv: " ++ limpio)
+
 -- Resuelve un código de tarjeta o un alias ("Luka", "Doc", "jefe", etc.)
 -- al identificador único de personal.csv.
 -- Si era un alias, devuelve también la nota explicativa para el campo "motivo".
-resolverPersona :: String -> Either String (String, Maybe String)
-resolverPersona texto =
+resolverPersona :: [PersonaRef] -> String -> Either String (String, Maybe String)
+resolverPersona personas texto =
   let limpio = limpiar texto
-      minus  = aMinusculas limpio
-   in case limpio of
-        "JS-01" -> Right ("JS-01", Nothing)
-        "DV-02" -> Right ("DV-02", Nothing)
-        "MR-03" -> Right ("MR-03", Nothing)
-        "LP-04" -> Right ("LP-04", Nothing)
-        "AK-05" -> Right ("AK-05", Nothing)
-        "IV-07" -> Right ("IV-07", Nothing)
-        _ -> case buscarAlias minus of
-          Just codigo ->
-            Right (codigo, Just ("Alias resuelto: " ++ limpio ++ " -> " ++ codigo))
+      codigos = codigosDePersonas personas
+   in if limpio `elem` codigos
+        then Right (limpio, Nothing)
+        else case buscarAlias (aMinusculas limpio) of
+          Just codigo
+            | codigo `elem` codigos ->
+                Right (codigo, Just ("Alias resuelto: " ++ limpio ++ " -> " ++ codigo))
+            | otherwise ->
+                Left
+                  ( "Alias "
+                      ++ limpio
+                      ++ " apunta a una tarjeta que no existe en personal.csv: "
+                      ++ codigo
+                  )
           Nothing ->
             Left ("Identidad o tarjeta invalida: " ++ limpio)
+
+-- Resuelve el autor implícito de la bitácora a partir del cargo declarado
+-- en personal.csv, no de un código fijo.
+resolverJefe :: [PersonaRef] -> Either String (String, Maybe String)
+resolverJefe personas =
+  case [refTarjeta p | p <- personas, "jefe" `isInfixOf` aMinusculas (refCargo p)] of
+    (codigo : _) -> Right (codigo, Nothing)
+    []           -> Left "No se encontro un cargo 'Jefe de estacion' en personal.csv"
 
 buscarAlias :: String -> Maybe String
 buscarAlias minus
@@ -148,6 +174,17 @@ detectarMenciones mensaje =
     sinRepetirCodigo [] = []
     sinRepetirCodigo ((etq, cod) : xs) =
       (etq, cod) : sinRepetirCodigo [par | par@(_, c) <- xs, c /= cod]
+
+-- Igual que detectarMenciones, pero solo conserva códigos que existen en
+-- personal.csv. Evita atribuir menciones a personas que no están en la
+-- fuente de referencia.
+detectarMencionesValidas :: [PersonaRef] -> String -> [(String, String)]
+detectarMencionesValidas personas mensaje =
+  let codigos = codigosDePersonas personas
+   in [ (etq, cod)
+        | (etq, cod) <- detectarMenciones mensaje,
+          cod `elem` codigos
+      ]
 
 -- ===========================================================================
 -- 4. Unificación Temporal (Conversión pura a ISO-8601 UTC)
@@ -263,7 +300,10 @@ normalizarFechaBitacora anio fechaTxt mHoraTxt =
                 Nothing ->
                   Right
                     ( formatearIsoUtc anio mes dia 0 0 0,
-                      Just "Entrada diaria sin hora exacta (asignada 00:00:00Z)"
+                      Just
+                        ( "precision_temporal=desconocida; hora no registrada; "
+                            ++ "se asigna 00:00:00Z solo para ordenar"
+                        )
                     )
                 Just horaRaw ->
                   let limpioHora = limpiar horaRaw
@@ -273,7 +313,11 @@ normalizarFechaBitacora anio fechaTxt mHoraTxt =
                         Right iso ->
                           let nota =
                                 if esAprox
-                                  then Just ("Hora aproximada en bitacora (" ++ limpioHora ++ ")")
+                                  then
+                                    Just
+                                      ( "precision_temporal=aproximada; hora transcripta: "
+                                          ++ limpioHora
+                                      )
                                   else Nothing
                            in Right (iso, nota)
                         Left err -> Left err
