@@ -10,5 +10,5 @@ Cada decisión lleva fecha, problema, alternativas (con al menos una descartada)
   - B) Encadenar cada hash con el anterior. Elegida.
 - **Decisión:** cada registro guarda `sha256(hash_anterior + evento)`. El primer registro usa `GENESIS`.
 - **Prueba que la respalda:** `CadenaSpec` en `scala/src/test`: el mismo historial da el mismo hash final, y alterar un evento anterior cambia el hash final. Ambas pasan con `sbt test`.
-- **Responsable:** Karol Viviana Castaño Usma 
+- **Responsable:** Karol Viviana Castaño Usma
 
