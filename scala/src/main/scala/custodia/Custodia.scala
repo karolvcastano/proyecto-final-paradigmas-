@@ -9,3 +9,8 @@ final class Custodia(repo: EvidenciaRepo, alRegistrar: Registro => Unit = _ => (
     repo.agregar(registro)
     alRegistrar(registro)
     registro
+
+  // Una corrección es un registro nuevo para un evento que ya existe. El original se conserva.
+  def corregir(evento: Evento): Registro =
+    require(repo.todos.exists(_.evento.id == evento.id), s"no existe el evento ${evento.id}")
+    registrar(evento)

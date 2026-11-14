@@ -9,6 +9,7 @@ final class ServidorHttp(custodia: Custodia, repo: EvidenciaRepo, consultas: Con
 
   def iniciar(): Unit =
     servidor.createContext("/evidencia", manejarEvidencia)
+    servidor.createContext("/correccion", manejarCorreccion)
     servidor.createContext("/consulta", manejarConsulta)
     servidor.setExecutor(null)
     servidor.start()
@@ -21,6 +22,19 @@ final class ServidorHttp(custodia: Custodia, repo: EvidenciaRepo, consultas: Con
       case "GET"  => listarEvidencia(ex)
       case _      => responder(ex, 405, """{"error":"metodo no permitido"}""")
 
+  private def manejarCorreccion(ex: HttpExchange): Unit =
+    if ex.getRequestMethod != "POST" then
+      responder(ex, 405, """{"error":"metodo no permitido"}""")
+    else
+      val cuerpo = new String(ex.getRequestBody.readAllBytes(), "UTF-8")
+      try
+        val registro = custodia.corregir(EventoJson.desdeJson(cuerpo))
+        val respuesta = ujson.Obj("id" -> registro.evento.id, "hash" -> registro.hash)
+        responder(ex, 201, respuesta.render())
+      catch
+        case e: Exception =>
+          responder(ex, 400, ujson.Obj("error" -> String.valueOf(e.getMessage)).render())
+
   private def manejarConsulta(ex: HttpExchange): Unit =
     if ex.getRequestMethod != "GET" then
       responder(ex, 405, """{"error":"metodo no permitido"}""")
@@ -30,13 +44,21 @@ final class ServidorHttp(custodia: Custodia, repo: EvidenciaRepo, consultas: Con
         case None =>
           responder(ex, 400, """{"error":"falta el parametro tipo"}""")
         case Some(tipo) =>
-          val respuesta = consultas.responder(Pregunta(tipo, params.get("persona")))
-          val json = ujson.Obj(
-            "tipo" -> tipo,
-            "cantidad" -> ujson.Num(respuesta.cantidad),
-            "version" -> ujson.Num(respuesta.version)
-          )
-          responder(ex, 200, json.render())
+          try
+            val pregunta = Pregunta(tipo, params.get("persona"))
+            // Con version=N se reconstruye la respuesta tal como era en ese momento.
+            val respuesta = params.get("version") match
+              case Some(v) => consultas.responderEn(pregunta, v.toInt)
+              case None    => consultas.responder(pregunta)
+            val json = ujson.Obj(
+              "tipo" -> tipo,
+              "cantidad" -> ujson.Num(respuesta.cantidad),
+              "version" -> ujson.Num(respuesta.version)
+            )
+            responder(ex, 200, json.render())
+          catch
+            case e: Exception =>
+              responder(ex, 400, ujson.Obj("error" -> String.valueOf(e.getMessage)).render())
 
   private def registrarEvidencia(ex: HttpExchange): Unit =
     val cuerpo = new String(ex.getRequestBody.readAllBytes(), "UTF-8")

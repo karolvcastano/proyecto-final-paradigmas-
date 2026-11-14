@@ -15,13 +15,19 @@ object Consultas:
 
 final class Consultas(repo: EvidenciaRepo):
   // Cálculos compartidos: misma pregunta + misma versión = un solo cálculo.
+  // Como el registro solo crece, una versión pasada nunca cambia, así que se puede guardar.
   private val calculos = ConcurrentHashMap[(Pregunta, Int), CompletableFuture[Respuesta]]()
 
   // Suscriptores por pregunta.
   private val suscriptores = ConcurrentHashMap[Pregunta, CopyOnWriteArrayList[Respuesta => Unit]]()
 
+  // Respuesta con la evidencia actual.
   def responder(pregunta: Pregunta): Respuesta =
-    val version = repo.todos.size
+    responderEn(pregunta, repo.todos.size)
+
+  // Respuesta tal como era en una versión pasada (reconstrucción).
+  def responderEn(pregunta: Pregunta, version: Int): Respuesta =
+    require(version >= 0 && version <= repo.todos.size, s"version fuera de rango: $version")
     calculos
       .computeIfAbsent((pregunta, version), _ => CompletableFuture.supplyAsync(() => calcular(pregunta, version)))
       .join()
@@ -31,14 +37,20 @@ final class Consultas(repo: EvidenciaRepo):
       .computeIfAbsent(pregunta, _ => new CopyOnWriteArrayList[Respuesta => Unit]())
       .add(alCambiar)
 
-  // Se llama cada vez que entra evidencia nueva.
+  // Se llama cada vez que entra evidencia nueva (o una corrección).
   def alRegistrar(registro: Registro): Unit =
     suscriptores.forEach { (pregunta, lista) =>
-      if Consultas.coincide(registro.evento, pregunta) then
+      if afecta(registro, pregunta) then
         val respuesta = responder(pregunta)
         lista.forEach(cb => cb(respuesta))
     }
 
+  // Afecta si el evento nuevo cumple la pregunta, o si cumplía su versión anterior.
+  private def afecta(registro: Registro, pregunta: Pregunta): Boolean =
+    repo.todos.exists(r => r.evento.id == registro.evento.id && Consultas.coincide(r.evento, pregunta))
+
+  // La versión vigente de cada evento es su último registro dentro de las primeras `version` entradas.
   private def calcular(pregunta: Pregunta, version: Int): Respuesta =
-    val cantidad = repo.todos.take(version).count(r => Consultas.coincide(r.evento, pregunta))
+    val vigentes = repo.todos.take(version).groupBy(_.evento.id).values.map(_.last.evento)
+    val cantidad = vigentes.count(e => Consultas.coincide(e, pregunta))
     Respuesta(pregunta, cantidad, version)

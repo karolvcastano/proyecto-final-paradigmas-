@@ -54,3 +54,24 @@ class ConsultasSpec extends munit.FunSuite:
     custodia.registrar(evento("2", "tarjeta"))
     assertEquals(recibidas.map(_.cantidad), List(1))
   }
+
+  test("una corrección cambia la respuesta actual pero no la pasada") {
+    val repo = RepoEnMemoria()
+    val custodia = Custodia(repo)
+    custodia.registrar(evento("1", "tarjeta"))
+    val consultas = Consultas(repo)
+    val versionPasada = consultas.responder(Pregunta("tarjeta")).version
+
+    custodia.corregir(evento("1", "radio"))
+
+    assertEquals(consultas.responder(Pregunta("tarjeta")).cantidad, 0)
+    assertEquals(consultas.responderEn(Pregunta("tarjeta"), versionPasada).cantidad, 1)
+    assertEquals(repo.todos.size, 2)
+  }
+
+  test("no se puede corregir un evento que no existe") {
+    val custodia = Custodia(RepoEnMemoria())
+    intercept[IllegalArgumentException] {
+      custodia.corregir(evento("99", "tarjeta"))
+    }
+  }
