@@ -4,7 +4,7 @@
 
 module Validador where
 
-import Data.List (isInfixOf, sortBy)
+import Data.List (isInfixOf, sort, sortBy)
 import Normalizar
 import Parsers
 import Tipos
@@ -17,18 +17,20 @@ import Tipos
 integrarEvidencia
   :: String -> String -> String -> String -> String -> String -> String -> String -> [Evento]
 integrarEvidencia txtPersonal txtEstacion txtTarjetas txtRadio txtEnergia txtPresencia txtTemp txtBitacora =
-  let personas = parsearPersonal txtPersonal
-      puertas  = parsearEstacion txtEstacion
+  let (personas, diagPersonal) = parsearPersonal txtPersonal
+      (puertas, diagEstacion)  = parsearEstacion txtEstacion
       eventosCrudos =
-        parsearBitacora txtBitacora
-          ++ parsearTarjetas puertas txtTarjetas
-          ++ parsearRadio txtRadio
+        diagPersonal
+          ++ diagEstacion
+          ++ parsearBitacora personas txtBitacora
+          ++ parsearTarjetas personas puertas txtTarjetas
+          ++ parsearRadio personas txtRadio
           ++ parsearEnergia txtEnergia
           ++ parsearPresencia txtPresencia
           ++ parsearTemperatura txtTemp
       pipelineValidacion =
         ordenarEventos
-          . detectarContradicciones
+          . detectarContradicciones personas
           . map (validarPermisosYTopologia personas puertas)
           . marcarDuplicados
    in pipelineValidacion eventosCrudos
@@ -99,8 +101,9 @@ validarPermisosYTopologia personas puertas ev
         (Just pid, Just pId, Just mDesde, Just mHacia) ->
           let conectaOk = puertaConecta puertas pId mDesde mHacia
               permisoOk = personaTienePermiso personas pid pId
-           in case (conectaOk, evEstado ev, permisoOk) of
-                (False, _, _) ->
+              lectorOk  = puertaTieneLector puertas pId
+           in case (conectaOk, lectorOk, evEstado ev, permisoOk) of
+                (False, _, _, _) ->
                   ev
                     { evEstado = Contradictorio,
                       evMotivo =
@@ -109,7 +112,16 @@ validarPermisosYTopologia personas puertas ev
                             Just ("Contradiccion topologica: la puerta " ++ pId ++ " no conecta " ++ moduloATexto mDesde ++ " con " ++ moduloATexto mHacia)
                           ]
                     }
-                (True, Denegado, False) ->
+                (_, False, _, _) ->
+                  ev
+                    { evEstado = Contradictorio,
+                      evMotivo =
+                        combinarMotivos
+                          [ evMotivo ev,
+                            Just ("Contradiccion de lector: la puerta " ++ pId ++ " no tiene lector de tarjeta")
+                          ]
+                    }
+                (True, True, Denegado, False) ->
                   ev
                     { evMotivo =
                         combinarMotivos
@@ -117,7 +129,16 @@ validarPermisosYTopologia personas puertas ev
                             Just ("Confirmado por personal.csv: tarjeta " ++ pid ++ " no tiene permiso para abrir " ++ pId)
                           ]
                     }
-                (True, Valido, False) ->
+                (True, True, Denegado, True) ->
+                  ev
+                    { evEstado = Contradictorio,
+                      evMotivo =
+                        combinarMotivos
+                          [ evMotivo ev,
+                            Just ("Contradiccion de acceso: lector registro DENEGADO pero " ++ pid ++ " si tiene permiso en " ++ pId)
+                          ]
+                    }
+                (True, True, Valido, False) ->
                   ev
                     { evEstado = Contradictorio,
                       evMotivo =
@@ -143,37 +164,61 @@ puertaConecta puertas pId m1 m2 =
         || (refModulo2 p == m1 && refModulo1 p == m2)
     [] -> False
 
+puertaTieneLector :: [PuertaRef] -> String -> Bool
+puertaTieneLector puertas pId =
+  case [p | p <- puertas, refPuerta p == pId] of
+    (p : _) -> refTieneLector p
+    []      -> False
+
 -- ===========================================================================
 -- 4. Detección de Contradicciones Cruzadas entre Fuentes
 -- ===========================================================================
 
-detectarContradicciones :: [Evento] -> [Evento]
-detectarContradicciones eventos =
-  let tarjetasPerdidas = extraerTarjetasPerdidas eventos
+-- Intervalo de corte por módulo: (módulo, inicio, fin opcional).
+-- El fin es Nothing si no hay un "restablecido" posterior en la fuente.
+type IntervaloCorte = (Modulo, String, Maybe String)
+
+detectarContradicciones :: [PersonaRef] -> [Evento] -> [Evento]
+detectarContradicciones personas eventos =
+  let tarjetasPerdidas = extraerTarjetasPerdidas personas eventos
       intervalosCorte  = extraerCortesEnergia eventos
    in map (revisarContradiccion tarjetasPerdidas intervalosCorte) eventos
 
 -- Busca en bitacora.txt menciones a pérdida de tarjeta (ej. Petrov LP-04 el 12/06)
-extraerTarjetasPerdidas :: [Evento] -> [(String, String, String)]
-extraerTarjetasPerdidas eventos =
+extraerTarjetasPerdidas :: [PersonaRef] -> [Evento] -> [(String, String, String)]
+extraerTarjetasPerdidas personas eventos =
   [ (codigoPersona, evId ev, tsUtc)
     | ev <- eventos,
       evFuente ev == FuenteBitacora,
       Just motivo <- [evMotivo ev],
       let m = aMinusculas motivo,
       "perdió su tarjeta" `isInfixOf` m || "perdio su tarjeta" `isInfixOf` m,
-      (_, codigoPersona) <- detectarMenciones motivo,
+      (_, codigoPersona) <- detectarMencionesValidas personas motivo,
       Just tsUtc <- [evTsUtc ev]
   ]
 
--- Empareja cada evento "energia_corte" con su "energia_restablecido"
-extraerCortesEnergia :: [Evento] -> [(String, String)]
+-- Empareja cada evento "energia_corte" con el siguiente "energia_restablecido".
+-- Los cortes se emiten por módulo, así que un mismo instante puede tener
+-- varios intervalos (COM, DOR, LAB-A, ...). RAD no aparece si no fue afectado.
+extraerCortesEnergia :: [Evento] -> [IntervaloCorte]
 extraerCortesEnergia eventos =
-  let inicios = [ts | ev <- eventos, evTipo ev == "energia_corte", Just ts <- [evTsUtc ev]]
-      fines   = [ts | ev <- eventos, evTipo ev == "energia_restablecido", Just ts <- [evTsUtc ev]]
-   in zip inicios fines
+  let restablecimientos =
+        sort [ts | ev <- eventos, evTipo ev == "energia_restablecido", Just ts <- [evTsUtc ev]]
+      cortes =
+        [ (m, ts)
+          | ev <- eventos,
+            evTipo ev == "energia_corte",
+            Just m <- [evModulo ev],
+            m /= TODOS,
+            Just ts <- [evTsUtc ev]
+        ]
+      siguienteFin ini =
+        case [f | f <- restablecimientos, f > ini] of
+          (f : _) -> Just f
+          []      -> Nothing
+   in [(m, ini, siguienteFin ini) | (m, ini) <- cortes]
 
-revisarContradiccion :: [(String, String, String)] -> [(String, String)] -> Evento -> Evento
+revisarContradiccion :: [(String, String, String)] -> [IntervaloCorte] -> Evento -> Evento
 revisarContradiccion perdidas cortes ev
   | evEstado ev `elem` [Corrupto, Duplicado] = ev
   | otherwise = revisarCorte cortes (revisarTarjetaPerdida perdidas ev)
@@ -207,20 +252,32 @@ revisarTarjetaPerdida perdidas ev
         [] -> ev
   | otherwise = ev
 
-revisarCorte :: [(String, String)] -> Evento -> Evento
+revisarCorte :: [IntervaloCorte] -> Evento -> Evento
 revisarCorte cortes ev
   | evFuente ev == FuenteTarjetas,
     Just ts <- evTsUtc ev,
-    any (\(ini, fin) -> ts > ini && ts < fin) cortes =
+    Just modulo <- primerModuloAfectado [m | Just m <- [evDesde ev, evHacia ev]] ts cortes =
       ev
         { evEstado = Contradictorio,
           evMotivo =
             combinarMotivos
               [ evMotivo ev,
-                Just "Contradiccion electrica: lector registro tarjeta durante corte de energia"
+                Just
+                  ( "Contradiccion electrica: el lector registro una tarjeta en "
+                      ++ maybe "?" id (evPuerta ev)
+                      ++ " durante el corte que afecta a "
+                      ++ moduloATexto modulo
+                  )
               ]
         }
   | otherwise = ev
+  where
+    primerModuloAfectado :: [Modulo] -> String -> [IntervaloCorte] -> Maybe Modulo
+    primerModuloAfectado [] _ _ = Nothing
+    primerModuloAfectado (m : ms) ts intervalos =
+      case [() | (m', ini, mFin) <- intervalos, m' == m, ts > ini, maybe True (ts <) mFin] of
+        (_ : _) -> Just m
+        []      -> primerModuloAfectado ms ts intervalos
 
 -- ===========================================================================
 -- 5. Ordenamiento Determinista de la Línea de Tiempo
@@ -234,7 +291,8 @@ ordenarEventos = sortBy compararEventos
       compare (claveOrden a) (claveOrden b)
 
     -- Los eventos con ts_utc válido van primero en orden cronológico;
-    -- los corruptos (ts_utc = Nothing) quedan al final con marca (True, "9999").
+    -- los que no tienen hora (corruptos o diagnósticos de referencia)
+    -- quedan al final con marca (True, "9999").
     claveOrden :: Evento -> ((Bool, String), Int, Int, String)
     claveOrden ev =
       let claveTs = case evTsUtc ev of
@@ -250,3 +308,5 @@ ordenarEventos = sortBy compararEventos
       FuenteTemperatura -> 4
       FuenteRadio       -> 5
       FuenteBitacora    -> 6
+      FuentePersonal    -> 7
+      FuenteEstacion    -> 8
