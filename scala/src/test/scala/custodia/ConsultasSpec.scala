@@ -75,3 +75,13 @@ class ConsultasSpec extends munit.FunSuite:
       custodia.corregir(evento("99", "tarjeta"))
     }
   }
+
+  test("no se puede registrar dos veces el mismo id") {
+    val repo = RepoEnMemoria()
+    val custodia = Custodia(repo)
+    custodia.registrar(evento("1", "tarjeta"))
+    intercept[IllegalArgumentException] {
+      custodia.registrar(evento("1", "radio"))
+    }
+    assertEquals(repo.todos.size, 1)
+  }
