@@ -6,5 +6,7 @@ lazy val root = (project in file("."))
     libraryDependencies ++= Seq(
       "com.lihaoyi" %% "ujson" % "3.3.1",
       "org.scalameta" %% "munit" % "1.0.0" % Test
-    )
+    ),
+    // Ejecuta el servidor en un proceso aparte para que sbt espere a que termine
+    Compile / run / fork := true
   )

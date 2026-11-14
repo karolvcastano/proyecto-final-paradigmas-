@@ -6,3 +6,4 @@ object Main:
     val servidor = ServidorHttp(Custodia(repo), repo, 8080)
     servidor.iniciar()
     println("Custodia escuchando en http://localhost:8080/evidencia")
+    Thread.sleep(Long.MaxValue)
