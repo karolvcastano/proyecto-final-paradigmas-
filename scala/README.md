@@ -1,12 +1,13 @@
-# Scala: Custodiar la evidencia e Informe del caso
+# Scala: C4 Consultas simultáneas y C5 Custodia de la evidencia
 
-Responsable: 
+Responsable: Karol Viviana Castaño Usma 
 
-C5 guarda la evidencia original sin modificarla. Las correcciones se guardan aparte como versiones, y cualquier respuesta pasada debe poder reconstruirse desde la base de datos.
-C6 genera el informe del caso con la línea de tiempo, los problemas de las fuentes y las preguntas con su evidencia.
+C5 guarda la evidencia original sin modificarla. Cada registro tiene un hash encadenado con el anterior, para demostrar que nadie alteró el historial. Las correcciones se guardan como versiones separadas.
+
+C4 atiende consultas simultáneas: si dos investigadores preguntan lo mismo al mismo tiempo, reciben la misma respuesta. También maneja las suscripciones para avisar cuando cambia la evidencia de una pregunta.
 
 ## Pendiente
-- [ ] Modelo inmutable de evidencia (case class y colecciones inmutables)
-- [ ] Guardar correcciones como versiones separadas de la original
-- [ ] Reconstruir una respuesta pasada exactamente desde la base de datos
-- [ ] Generar el informe con línea de tiempo, problemas y respuestas
+- [x] Modelo inmutable y cadena de hashes
+- [ ] Base de datos real con la misma interfaz
+- [ ] Endpoints HTTP de evidencia y correcciones
+- [ ] Consultas simultáneas y suscripciones
