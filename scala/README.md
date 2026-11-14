@@ -67,4 +67,5 @@ La conexión a MySQL se toma de variables de entorno, con estos valores por defe
 - [x] Suscripciones (lógica interna)
 - [x] Base de datos real: MySQL 8.4 en Docker
 - [ ] Endpoint HTTP para suscripciones
-- [ ] Alinear el evento con el contrato de 14 campos del equipo (validación de estados hecha; falta probar con el JSON de Haskell)
+- [x] Alinear el evento con el contrato de 14 campos del equipo (estados validados; probado con casos valido, denegado y corrupto del formato de Haskell)
+- [ ] Probar con el JSON completo de Haskell (70 eventos)
