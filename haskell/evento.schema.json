@@ -1,0 +1,93 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://halley-7.local/evento.schema.json",
+  "title": "Evento integrado C1 - Halley-7",
+  "description": "Contrato de 14 campos que Haskell entrega a Scala, Prolog y Java. Los eventos con tipo=referencia son diagnosticos de personal.csv o estacion.csv y quedan al final de la linea de tiempo con ts_utc=null.",
+  "type": "array",
+  "items": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "id",
+      "fuente",
+      "linea_original",
+      "tipo",
+      "ts_original",
+      "ts_utc",
+      "persona",
+      "modulo",
+      "puerta",
+      "desde",
+      "hacia",
+      "valor",
+      "estado",
+      "motivo"
+    ],
+    "properties": {
+      "id": {
+        "type": "string",
+        "pattern": "^[a-z]+-[0-9]{5}$"
+      },
+      "fuente": {
+        "enum": [
+          "tarjetas.csv",
+          "radio.txt",
+          "energia.json",
+          "presencia.csv",
+          "temperatura.csv",
+          "bitacora.txt",
+          "personal.csv",
+          "estacion.csv"
+        ]
+      },
+      "linea_original": {
+        "type": "integer",
+        "minimum": 1
+      },
+      "tipo": {
+        "enum": [
+          "tarjeta",
+          "radio",
+          "energia",
+          "energia_corte",
+          "energia_restablecido",
+          "presencia",
+          "temperatura",
+          "bitacora",
+          "referencia"
+        ]
+      },
+      "ts_original": {
+        "type": ["string", "null"]
+      },
+      "ts_utc": {
+        "type": ["string", "null"],
+        "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"
+      },
+      "persona": {
+        "type": ["string", "null"]
+      },
+      "modulo": {
+        "enum": ["COM", "DOR", "LAB-A", "LAB-B", "GEN", "RAD", "ALM", "EXT", "*", null]
+      },
+      "puerta": {
+        "type": ["string", "null"]
+      },
+      "desde": {
+        "enum": ["COM", "DOR", "LAB-A", "LAB-B", "GEN", "RAD", "ALM", "EXT", "*", null]
+      },
+      "hacia": {
+        "enum": ["COM", "DOR", "LAB-A", "LAB-B", "GEN", "RAD", "ALM", "EXT", "*", null]
+      },
+      "valor": {
+        "type": ["number", "null"]
+      },
+      "estado": {
+        "enum": ["valido", "denegado", "duplicado", "corrupto", "contradictorio"]
+      },
+      "motivo": {
+        "type": ["string", "null"]
+      }
+    }
+  }
+}
