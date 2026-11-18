@@ -75,7 +75,7 @@ final class RepoMySQL(url: String, usuario: String, clave: String) extends Evide
           |  hacia VARCHAR(64),
           |  valor DOUBLE,
           |  estado VARCHAR(32) NOT NULL,
-          |  motivo VARCHAR(255),
+          |  motivo TEXT,
           |  hash CHAR(64) NOT NULL,
           |  INDEX idx_id (id)
           |)""".stripMargin
