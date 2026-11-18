@@ -1,0 +1,130 @@
+package custodia
+
+import com.sun.net.httpserver.{HttpExchange, HttpServer}
+import java.net.{InetSocketAddress, URLDecoder}
+
+// Solo se encarga de HTTP: recibe, delega en Custodia o Consultas y responde.
+final class ServidorHttp(custodia: Custodia, repo: EvidenciaRepo, consultas: Consultas, puerto: Int):
+  private val servidor = HttpServer.create(InetSocketAddress(puerto), 0)
+
+  def iniciar(): Unit =
+    servidor.createContext("/evidencia", manejarEvidencia)
+    servidor.createContext("/correccion", manejarCorreccion)
+    servidor.createContext("/consulta", manejarConsulta)
+    servidor.createContext("/suscripcion", manejarSuscripcion)
+    servidor.setExecutor(null)
+    servidor.start()
+
+  def detener(): Unit = servidor.stop(0)
+
+  private def manejarEvidencia(ex: HttpExchange): Unit =
+    ex.getRequestMethod match
+      case "POST" => registrarEvidencia(ex)
+      case "GET"  => listarEvidencia(ex)
+      case _      => responder(ex, 405, """{"error":"metodo no permitido"}""")
+
+  private def manejarCorreccion(ex: HttpExchange): Unit =
+    if ex.getRequestMethod != "POST" then
+      responder(ex, 405, """{"error":"metodo no permitido"}""")
+    else
+      val cuerpo = new String(ex.getRequestBody.readAllBytes(), "UTF-8")
+      try
+        val registro = custodia.corregir(EventoJson.desdeJson(cuerpo))
+        val respuesta = ujson.Obj("id" -> registro.evento.id, "hash" -> registro.hash)
+        responder(ex, 201, respuesta.render())
+      catch
+        case e: Exception =>
+          responder(ex, 400, ujson.Obj("error" -> String.valueOf(e.getMessage)).render())
+
+  private def manejarConsulta(ex: HttpExchange): Unit =
+    if ex.getRequestMethod != "GET" then
+      responder(ex, 405, """{"error":"metodo no permitido"}""")
+    else
+      val params = parametros(ex.getRequestURI.getRawQuery)
+      params.get("tipo") match
+        case None =>
+          responder(ex, 400, """{"error":"falta el parametro tipo"}""")
+        case Some(tipo) =>
+          try
+            val pregunta = Pregunta(tipo, params.get("persona"))
+            // Con version=N se reconstruye la respuesta tal como era en ese momento.
+            val respuesta = params.get("version") match
+              case Some(v) => consultas.responderEn(pregunta, v.toInt)
+              case None    => consultas.responder(pregunta)
+            val json = ujson.Obj(
+              "tipo" -> tipo,
+              "cantidad" -> ujson.Num(respuesta.cantidad),
+              "version" -> ujson.Num(respuesta.version)
+            )
+            responder(ex, 200, json.render())
+          catch
+            case e: Exception =>
+              responder(ex, 400, ujson.Obj("error" -> String.valueOf(e.getMessage)).render())
+
+  private def manejarSuscripcion(ex: HttpExchange): Unit =
+    ex.getRequestMethod match
+      case "POST" => registrarSuscripcion(ex)
+      case "GET"  => consultarSuscripcion(ex)
+      case _      => responder(ex, 405, """{"error":"metodo no permitido"}""")
+
+  // POST /suscripcion?tipo=...&persona=... crea la suscripción y devuelve su id.
+  private def registrarSuscripcion(ex: HttpExchange): Unit =
+    val params = parametros(ex.getRequestURI.getRawQuery)
+    params.get("tipo") match
+      case None =>
+        responder(ex, 400, """{"error":"falta el parametro tipo"}""")
+      case Some(tipo) =>
+        val id = consultas.crearSuscripcion(Pregunta(tipo, params.get("persona")))
+        responder(ex, 201, ujson.Obj("id" -> id, "tipo" -> tipo).render())
+
+  // GET /suscripcion?id=... devuelve la respuesta actual y los eventos nuevos desde la última lectura.
+  private def consultarSuscripcion(ex: HttpExchange): Unit =
+    val params = parametros(ex.getRequestURI.getRawQuery)
+    params.get("id") match
+      case None =>
+        responder(ex, 400, """{"error":"falta el parametro id"}""")
+      case Some(id) =>
+        consultas.leerSuscripcion(id) match
+          case None =>
+            responder(ex, 404, """{"error":"suscripcion no encontrada"}""")
+          case Some((respuesta, nuevos)) =>
+            val json = ujson.Obj(
+              "cantidad" -> ujson.Num(respuesta.cantidad),
+              "version" -> ujson.Num(respuesta.version),
+              "nuevos" -> ujson.Num(nuevos)
+            )
+            responder(ex, 200, json.render())
+
+  private def registrarEvidencia(ex: HttpExchange): Unit =
+    val cuerpo = new String(ex.getRequestBody.readAllBytes(), "UTF-8")
+    try
+      val registro = custodia.registrar(EventoJson.desdeJson(cuerpo))
+      val respuesta = ujson.Obj("id" -> registro.evento.id, "hash" -> registro.hash)
+      responder(ex, 201, respuesta.render())
+    catch
+      case e: Exception =>
+        responder(ex, 400, ujson.Obj("error" -> String.valueOf(e.getMessage)).render())
+
+  private def listarEvidencia(ex: HttpExchange): Unit =
+    val json = repo.todos
+      .map(r => ujson.Obj("id" -> r.evento.id, "hash" -> r.hash).render())
+      .mkString("[", ",", "]")
+    responder(ex, 200, json)
+
+  // Convierte "tipo=tarjeta&persona=IV-07" en un mapa.
+  private def parametros(query: String): Map[String, String] =
+    Option(query).getOrElse("")
+      .split("&")
+      .filter(_.contains("="))
+      .map { par =>
+        val i = par.indexOf('=')
+        par.take(i) -> URLDecoder.decode(par.drop(i + 1), "UTF-8")
+      }
+      .toMap
+
+  private def responder(ex: HttpExchange, codigo: Int, cuerpo: String): Unit =
+    val bytes = cuerpo.getBytes("UTF-8")
+    ex.getResponseHeaders.add("Content-Type", "application/json; charset=utf-8")
+    ex.sendResponseHeaders(codigo, bytes.length)
+    ex.getResponseBody.write(bytes)
+    ex.close()

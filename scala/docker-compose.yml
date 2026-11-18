@@ -1,0 +1,17 @@
+services:
+  mysql:
+    image: mysql:8.4
+    container_name: custodia-mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: custodia
+      MYSQL_USER: custodia
+      MYSQL_PASSWORD: custodia
+    ports:
+      # Puerto 3308 en Windows: el 3306 y el 3307 ya los usan otros procesos del computador
+      - "3308:3306"
+    volumes:
+      - custodia-datos:/var/lib/mysql
+
+volumes:
+  custodia-datos:
