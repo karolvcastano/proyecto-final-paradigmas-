@@ -85,3 +85,25 @@ class ConsultasSpec extends munit.FunSuite:
     }
     assertEquals(repo.todos.size, 1)
   }
+
+  test("una suscripcion cuenta la evidencia nueva que la afecta y se reinicia al leer") {
+    val repo = RepoEnMemoria()
+    val consultas = Consultas(repo)
+    val custodia = Custodia(repo, consultas.alRegistrar)
+    val id = consultas.crearSuscripcion(Pregunta("tarjeta"))
+
+    custodia.registrar(evento("1", "radio"))
+    assertEquals(consultas.leerSuscripcion(id).map(_._2), Some(0))
+
+    custodia.registrar(evento("2", "tarjeta"))
+    custodia.registrar(evento("3", "tarjeta"))
+    val (respuesta, nuevos) = consultas.leerSuscripcion(id).get
+    assertEquals(respuesta.cantidad, 2)
+    assertEquals(nuevos, 2)
+    assertEquals(consultas.leerSuscripcion(id).map(_._2), Some(0))
+  }
+
+  test("una suscripcion desconocida no existe") {
+    assertEquals(Consultas(RepoEnMemoria()).leerSuscripcion("no-existe"), None)
+  }
+

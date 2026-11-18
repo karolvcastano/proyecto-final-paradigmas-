@@ -11,6 +11,7 @@ final class ServidorHttp(custodia: Custodia, repo: EvidenciaRepo, consultas: Con
     servidor.createContext("/evidencia", manejarEvidencia)
     servidor.createContext("/correccion", manejarCorreccion)
     servidor.createContext("/consulta", manejarConsulta)
+    servidor.createContext("/suscripcion", manejarSuscripcion)
     servidor.setExecutor(null)
     servidor.start()
 
@@ -59,6 +60,40 @@ final class ServidorHttp(custodia: Custodia, repo: EvidenciaRepo, consultas: Con
           catch
             case e: Exception =>
               responder(ex, 400, ujson.Obj("error" -> String.valueOf(e.getMessage)).render())
+
+  private def manejarSuscripcion(ex: HttpExchange): Unit =
+    ex.getRequestMethod match
+      case "POST" => registrarSuscripcion(ex)
+      case "GET"  => consultarSuscripcion(ex)
+      case _      => responder(ex, 405, """{"error":"metodo no permitido"}""")
+
+  // POST /suscripcion?tipo=...&persona=... crea la suscripción y devuelve su id.
+  private def registrarSuscripcion(ex: HttpExchange): Unit =
+    val params = parametros(ex.getRequestURI.getRawQuery)
+    params.get("tipo") match
+      case None =>
+        responder(ex, 400, """{"error":"falta el parametro tipo"}""")
+      case Some(tipo) =>
+        val id = consultas.crearSuscripcion(Pregunta(tipo, params.get("persona")))
+        responder(ex, 201, ujson.Obj("id" -> id, "tipo" -> tipo).render())
+
+  // GET /suscripcion?id=... devuelve la respuesta actual y los eventos nuevos desde la última lectura.
+  private def consultarSuscripcion(ex: HttpExchange): Unit =
+    val params = parametros(ex.getRequestURI.getRawQuery)
+    params.get("id") match
+      case None =>
+        responder(ex, 400, """{"error":"falta el parametro id"}""")
+      case Some(id) =>
+        consultas.leerSuscripcion(id) match
+          case None =>
+            responder(ex, 404, """{"error":"suscripcion no encontrada"}""")
+          case Some((respuesta, nuevos)) =>
+            val json = ujson.Obj(
+              "cantidad" -> ujson.Num(respuesta.cantidad),
+              "version" -> ujson.Num(respuesta.version),
+              "nuevos" -> ujson.Num(nuevos)
+            )
+            responder(ex, 200, json.render())
 
   private def registrarEvidencia(ex: HttpExchange): Unit =
     val cuerpo = new String(ex.getRequestBody.readAllBytes(), "UTF-8")
