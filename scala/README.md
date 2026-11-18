@@ -59,13 +59,15 @@ La conexión a MySQL se toma de variables de entorno, con estos valores por defe
 | POST | `/correccion` | Guarda una versión corregida de un evento existente; el original se conserva |
 | GET | `/consulta?tipo=...&persona=...` | Cuenta los eventos válidos del tipo pedido (y de la persona, si se indica) |
 | GET | `/consulta?tipo=...&version=N` | Reconstruye la respuesta tal como era en la versión N |
+| POST | `/suscripcion?tipo=...&persona=...` | Crea una suscripción a una pregunta y devuelve su `id` |
+| GET | `/suscripcion?id=...` | Devuelve la respuesta actual y `nuevos`: cuántos eventos nuevos la afectaron desde la última lectura (el contador vuelve a cero) |
 
 ## Pendiente
 - [x] Modelo inmutable y cadena de hashes
 - [x] Endpoints HTTP de evidencia y correcciones
 - [x] Consultas simultáneas y consultas por versión
-- [x] Suscripciones (lógica interna)
+- [x] Suscripciones (lógica interna y por HTTP)
 - [x] Base de datos real: MySQL 8.4 en Docker
-- [ ] Endpoint HTTP para suscripciones
+- [x] Endpoint HTTP para suscripciones
 - [x] Alinear el evento con el contrato de 14 campos del equipo (estados validados; probado con casos valido, denegado y corrupto del formato de Haskell)
-- [ ] Probar con el JSON completo de Haskell (70 eventos)
+- [x] Probar con el JSON completo de Haskell (76 eventos cargados sin rechazos)
